@@ -896,7 +896,8 @@ void calculateUnusedValuesInFunction(
         }
         if ((mode == DerivativeMode::ReverseModePrimal ||
              mode == DerivativeMode::ReverseModeCombined ||
-             mode == DerivativeMode::ForwardMode) &&
+             mode == DerivativeMode::ForwardMode ||
+             mode == DerivativeMode::ForwardModeVector) &&
             inst->mayWriteToMemory() && !isLibMFn) {
           return UseReq::Need;
         }

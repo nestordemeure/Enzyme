@@ -407,6 +407,7 @@ public:
 
     bool differentialReturn =
         mode != DerivativeMode::ForwardMode &&
+        mode != DerivativeMode::ForwardModeVector &&
         mode != DerivativeMode::ReverseModePrimal &&
         cast<Function>(fn)->getReturnType()->isFPOrFPVectorTy();
 
@@ -423,6 +424,10 @@ public:
 #endif
     {
       Value *res = CI->getArgOperand(i);
+
+      GetElementPtrInst *gep =
+          dyn_cast_or_null<GetElementPtrInst>(CI->getArgOperand(2));
+      ConstantArray *arr = dyn_cast_or_null<ConstantArray>(gep->getOperand(0));
 
       if (truei >= FT->getNumParams()) {
         if (mode == DerivativeMode::ReverseModeGradient) {
@@ -606,7 +611,8 @@ public:
           return false;
         }
         Value *res = CI->getArgOperand(i);
-        if (PTy != res->getType()) {
+        if (PTy != res->getType() &&
+            mode != DerivativeMode::ForwardModeVector) {
           if (auto ptr = dyn_cast<PointerType>(res->getType())) {
             if (auto PT = dyn_cast<PointerType>(PTy)) {
               if (ptr->getAddressSpace() != PT->getAddressSpace()) {
@@ -1028,6 +1034,7 @@ public:
               Fn->getName().contains("__enzyme_call_inactive") ||
               Fn->getName().contains("__enzyme_autodiff") ||
               Fn->getName().contains("__enzyme_fwddiff") ||
+              Fn->getName().contains("__enzyme_vecdiff") ||
               Fn->getName().contains("__enzyme_augmentfwd") ||
               Fn->getName().contains("__enzyme_augmentsize") ||
               Fn->getName().contains("__enzyme_reverse")))
@@ -1283,6 +1290,12 @@ public:
         } else if (Fn->getName().contains("__enzyme_fwddiff")) {
           enableEnzyme = true;
           mode = DerivativeMode::ForwardMode;
+        } else if (Fn->getName().contains("__enzyme_vecdiff")) {
+          enableEnzyme = true;
+          mode = DerivativeMode::ForwardModeVector;
+        } else if (Fn->getName().contains("__enzyme_fwdvectordiff")) {
+          enableEnzyme = true;
+          mode = DerivativeMode::ForwardModeVector;
         } else if (Fn->getName().contains("__enzyme_augmentfwd")) {
           enableEnzyme = true;
           mode = DerivativeMode::ReverseModePrimal;

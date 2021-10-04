@@ -2478,7 +2478,8 @@ DiffeGradientUtils *DiffeGradientUtils::CreateFromClone(
   assert(!todiff->empty());
   assert(mode == DerivativeMode::ReverseModeGradient ||
          mode == DerivativeMode::ReverseModeCombined ||
-         mode == DerivativeMode::ForwardMode);
+         mode == DerivativeMode::ForwardMode ||
+         mode == DerivativeMode::ForwardModeVector);
   ValueToValueMapTy invertedPointers;
   SmallPtrSet<Instruction *, 4> constants;
   SmallPtrSet<Instruction *, 20> nonconstant;
@@ -2493,8 +2494,10 @@ DiffeGradientUtils *DiffeGradientUtils::CreateFromClone(
   switch (mode) {
   case DerivativeMode::ForwardMode:
   case DerivativeMode::ForwardModeSplit:
-  case DerivativeMode::ForwardModeVector:
     prefix = "fwddiffe";
+    break;
+  case DerivativeMode::ForwardModeVector:
+    prefix = "fwdvectordiffe";
     break;
   case DerivativeMode::ReverseModeCombined:
   case DerivativeMode::ReverseModeGradient:
@@ -2809,7 +2812,8 @@ Value *GradientUtils::invertPointerM(Value *const oval, IRBuilder<> &BuilderM,
     if (!hasMetadata(arg, "enzyme_shadow")) {
 
       if ((mode == DerivativeMode::ReverseModeCombined ||
-           mode == DerivativeMode::ForwardMode) &&
+           mode == DerivativeMode::ForwardMode ||
+           mode == DerivativeMode::ForwardModeVector) &&
           arg->getType()->getPointerAddressSpace() == 0) {
         assert(my_TR);
         auto CT = my_TR->query(arg)[{-1, -1}];
