@@ -329,7 +329,7 @@ public:
     std::vector<DIFFE_TYPE> constants;
     SmallVector<Value *, 2> args;
 
-    if (CI->paramHasAttr(0, Attribute::StructRet)) {
+    if (CI->hasStructRetAttr()) {
       fn = CI->getArgOperand(1);
     }
 
@@ -357,8 +357,15 @@ public:
     auto FT = cast<Function>(fn)->getFunctionType();
     assert(fn);
 
-    bool sret = CI->paramHasAttr(0, Attribute::StructRet) ||
+    bool sret = CI->hasStructRetAttr() ||
                 cast<Function>(fn)->hasParamAttribute(0, Attribute::StructRet);
+
+    /// Actual return type (including struct return)
+    Type *returnType =
+        CI->hasStructRetAttr()
+            ? dyn_cast<PointerType>(CI->getArgOperand(0)->getType())
+                  ->getPointerElementType()
+            : CI->getType();
 
     IRBuilder<> Builder(CI);
 
@@ -380,7 +387,8 @@ public:
       primal->insertBefore(CI);
 
       Value *shadow;
-      if (mode == DerivativeMode::ForwardMode) {
+      if (mode == DerivativeMode::ForwardMode ||
+          mode == DerivativeMode::ForwardModeVector) {
         shadow = CI->getArgOperand(0);
       } else {
         shadow = CI->getArgOperand(1);
@@ -424,10 +432,6 @@ public:
 #endif
     {
       Value *res = CI->getArgOperand(i);
-
-      GetElementPtrInst *gep =
-          dyn_cast_or_null<GetElementPtrInst>(CI->getArgOperand(2));
-      ConstantArray *arr = dyn_cast_or_null<ConstantArray>(gep->getOperand(0));
 
       if (truei >= FT->getNumParams()) {
         if (mode == DerivativeMode::ReverseModeGradient) {
@@ -646,7 +650,35 @@ public:
           }
           res = Builder.CreateBitCast(res, PTy);
         }
-        args.push_back(res);
+
+        // Convert struct used in C calling convention to vector type for
+        // internal use.
+        if (mode == DerivativeMode::ForwardModeVector) {
+          Value *vec = UndefValue::get(
+              FixedVectorType::get(returnType->getStructElementType(0),
+                                   returnType->getStructNumElements()));
+
+          if (CI->hasStructRetAttr()) {
+            StructType *sty = dyn_cast<StructType>(
+                dyn_cast<PointerType>(res->getType())->getPointerElementType());
+
+            for (unsigned int i = 0; i < sty->getNumElements(); i++) {
+              Value *ep = Builder.CreateStructGEP(res, i);
+              Value *elem = Builder.CreateLoad(sty->getElementType(i), ep);
+              vec = Builder.CreateInsertElement(vec, elem, i);
+            }
+          } else {
+            unsigned int width = CI->getType()->getStructNumElements();
+            for (unsigned int j = 0; j < width; j++) {
+              Value *elem = CI->getArgOperand(i + j);
+              vec = Builder.CreateInsertElement(vec, elem, j);
+            }
+            i += width;
+          }
+          args.push_back(vec);
+        } else {
+          args.push_back(res);
+        }
       }
 
       ++truei;
@@ -687,11 +719,17 @@ public:
     const AugmentedReturn *aug;
     switch (mode) {
     case DerivativeMode::ForwardModeVector:
+      newFunc = Logic.CreateForwardDiff(
+          cast<Function>(fn), retType, constants, TLI, TA,
+          /*should return*/ false, /*dretPtr*/ false, mode,
+          /* width */ returnType->getStructNumElements(),
+          /*addedType*/ nullptr, type_args, volatile_args, PostOpt);
+      break;
     case DerivativeMode::ForwardModeSplit:
     case DerivativeMode::ForwardMode:
       newFunc = Logic.CreateForwardDiff(
           cast<Function>(fn), retType, constants, TLI, TA,
-          /*should return*/ false, /*dretPtr*/ false, mode,
+          /*should return*/ false, /*dretPtr*/ false, mode, /* width */ 1,
           /*addedType*/ nullptr, type_args, volatile_args, PostOpt);
       break;
     case DerivativeMode::ReverseModeCombined:
@@ -871,10 +909,23 @@ public:
     StructType *CIsty = dyn_cast<StructType>(CI->getType());
     StructType *diffretsty = dyn_cast<StructType>(diffret->getType());
 
+    // Adapt the returned vector type to the struct type expected by our calling
+    // convention.
+    if (mode == DerivativeMode::ForwardModeVector) {
+      if (StructType *sty = dyn_cast_or_null<StructType>(returnType)) {
+        Value *agg = ConstantAggregateZero::get(sty);
+
+        for (unsigned int i = 0; i < sty->getNumElements(); i++) {
+          agg = Builder.CreateInsertValue(
+              agg, Builder.CreateExtractElement(diffret, i), {i});
+        }
+        diffret = agg;
+      }
+    }
+
     if (!diffret->getType()->isEmptyTy() && !diffret->getType()->isVoidTy() &&
         !CI->getType()->isEmptyTy() &&
-        (!CI->getType()->isVoidTy() ||
-         CI->paramHasAttr(0, Attribute::StructRet))) {
+        (!CI->getType()->isVoidTy() || CI->hasStructRetAttr())) {
       if (diffret->getType() == CI->getType()) {
         CI->replaceAllUsesWith(diffret);
       } else if (CIsty && diffretsty && CIsty->isLayoutIdentical(diffretsty)) {
@@ -900,9 +951,10 @@ public:
           llvm::errs() << *CI << " - " << *diffret << "\n";
           assert(0 && " what");
         }
-      } else if (CI->paramHasAttr(0, Attribute::StructRet)) {
+      } else if (CI->hasStructRetAttr()) {
         Value *sret = CI->getArgOperand(0);
 
+        // Assign results to struct allocated at the call site.
         if (StructType *st = cast<StructType>(diffret->getType())) {
           for (unsigned int i = 0; i < st->getNumElements(); i++) {
             Builder.CreateStore(Builder.CreateExtractValue(diffret, {i}),

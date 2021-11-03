@@ -2457,21 +2457,22 @@ GradientUtils *GradientUtils::CreateFromClone(
   SmallPtrSet<Value *, 4> nonconstant_values;
 
   auto newFunc = Logic.PPC.CloneFunctionWithReturns(
-      DerivativeMode::ReverseModePrimal, todiff, invertedPointers,
-      constant_args, constant_values, nonconstant_values, returnvals,
+      DerivativeMode::ReverseModePrimal, /* width */ 1, todiff,
+      invertedPointers, constant_args, constant_values, nonconstant_values,
+      returnvals,
       /*returnValue*/ returnValue, "fakeaugmented_" + todiff->getName(),
       &originalToNew,
       /*diffeReturnArg*/ false, /*additionalArg*/ nullptr);
 
-  auto res =
-      new GradientUtils(Logic, newFunc, todiff, TLI, TA, invertedPointers,
-                        constant_values, nonconstant_values, retType,
-                        originalToNew, DerivativeMode::ReverseModePrimal, omp);
+  auto res = new GradientUtils(
+      Logic, newFunc, todiff, TLI, TA, invertedPointers, constant_values,
+      nonconstant_values, retType, originalToNew,
+      DerivativeMode::ReverseModePrimal, /* width */ 1, omp);
   return res;
 }
 
 DiffeGradientUtils *DiffeGradientUtils::CreateFromClone(
-    EnzymeLogic &Logic, DerivativeMode mode, Function *todiff,
+    EnzymeLogic &Logic, DerivativeMode mode, size_t width, Function *todiff,
     TargetLibraryInfo &TLI, TypeAnalysis &TA, DIFFE_TYPE retType,
     bool diffeReturnArg, const std::vector<DIFFE_TYPE> &constant_args,
     ReturnType returnValue, Type *additionalArg, bool omp) {
@@ -2508,13 +2509,13 @@ DiffeGradientUtils *DiffeGradientUtils::CreateFromClone(
   }
 
   auto newFunc = Logic.PPC.CloneFunctionWithReturns(
-      mode, todiff, invertedPointers, constant_args, constant_values,
+      mode, width, todiff, invertedPointers, constant_args, constant_values,
       nonconstant_values, returnvals, returnValue, prefix + todiff->getName(),
       &originalToNew,
       /*diffeReturnArg*/ diffeReturnArg, additionalArg);
   auto res = new DiffeGradientUtils(
       Logic, newFunc, todiff, TLI, TA, invertedPointers, constant_values,
-      nonconstant_values, retType, originalToNew, mode, omp);
+      nonconstant_values, retType, originalToNew, mode, width, omp);
   return res;
 }
 

@@ -2025,6 +2025,17 @@ public:
     Value *orig_op0 = BO.getOperand(0);
     Value *orig_op1 = BO.getOperand(1);
 
+    Value *new_op0 =
+        Mode == DerivativeMode::ForwardModeVector
+            ? Builder2.CreateVectorSplat(gutils->width,
+                                         gutils->getNewFromOriginal(orig_op0))
+            : gutils->getNewFromOriginal(orig_op0);
+    Value *new_op1 =
+        Mode == DerivativeMode::ForwardModeVector
+            ? Builder2.CreateVectorSplat(gutils->width,
+                                         gutils->getNewFromOriginal(orig_op1))
+            : gutils->getNewFromOriginal(orig_op1);
+
     bool constantval0 = gutils->isConstantValue(orig_op0);
     bool constantval1 = gutils->isConstantValue(orig_op1);
 
@@ -2034,19 +2045,15 @@ public:
     switch (BO.getOpcode()) {
     case Instruction::FMul: {
       if (!constantval0 && !constantval1) {
-        Value *idiff0 =
-            Builder2.CreateFMul(dif0, gutils->getNewFromOriginal(orig_op1));
-        Value *idiff1 =
-            Builder2.CreateFMul(dif1, gutils->getNewFromOriginal(orig_op0));
+        Value *idiff0 = Builder2.CreateFMul(dif0, new_op1);
+        Value *idiff1 = Builder2.CreateFMul(dif1, new_op0);
         Value *diff = Builder2.CreateFAdd(idiff0, idiff1);
         setDiffe(&BO, diff, Builder2);
       } else if (!constantval0) {
-        Value *idiff0 =
-            Builder2.CreateFMul(dif0, gutils->getNewFromOriginal(orig_op1));
+        Value *idiff0 = Builder2.CreateFMul(dif0, new_op1);
         setDiffe(&BO, idiff0, Builder2);
       } else if (!constantval1) {
-        Value *idiff1 =
-            Builder2.CreateFMul(dif1, gutils->getNewFromOriginal(orig_op0));
+        Value *idiff1 = Builder2.CreateFMul(dif1, new_op0);
         setDiffe(&BO, idiff1, Builder2);
       }
       break;
@@ -8020,11 +8027,12 @@ public:
         }
       }
 
+      // FIXME: width!
       auto newcalled = gutils->Logic.CreateForwardDiff(
           cast<Function>(called), subretType, argsInverted, gutils->TLI,
           TR.analyzer.interprocedural, /*returnValue*/ subretused,
-          /*subdretptr*/ false, DerivativeMode::ForwardMode, nullptr,
-          nextTypeInfo, {});
+          /*subdretptr*/ false, DerivativeMode::ForwardMode, /* width */ 1,
+          nullptr, nextTypeInfo, {});
 
       assert(newcalled);
       FunctionType *FT = cast<FunctionType>(
