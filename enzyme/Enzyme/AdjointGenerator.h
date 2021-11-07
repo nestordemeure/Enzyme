@@ -1143,7 +1143,7 @@ public:
     getForwardBuilder(Builder2);
 
     Type *type = Mode == DerivativeMode::ForwardModeVector
-                     ? VectorType::get(SI.getType(), gutils->width, false)
+                     ? FixedVectorType::get(SI.getType(), gutils->width)
                      : SI.getType();
 
     Value *dif1;
@@ -1513,20 +1513,27 @@ public:
       return;
 
     switch (Mode) {
-    case DerivativeMode::ForwardMode: {
+    case DerivativeMode::ForwardMode:
+    case DerivativeMode::ForwardModeVector: {
       IRBuilder<> Builder2(&EVI);
       getForwardBuilder(Builder2);
 
       Value *orig_aggregate = EVI.getAggregateOperand();
 
-      Value *diffe_aggregate =
-          gutils->isConstantValue(orig_aggregate)
-              ? ConstantAggregate::getNullValue(orig_aggregate->getType())
-              : diffe(orig_aggregate, Builder2);
-      Value *diffe =
-          Builder2.CreateExtractValue(diffe_aggregate, EVI.getIndices());
+      if (gutils->isConstantValue(orig_aggregate)) {
+        Type *diffeType =
+            Mode == DerivativeMode::ForwardModeVector
+                ? FixedVectorType::get(EVI.getType(), gutils->width)
+                : EVI.getType();
+        Value *diffe = Constant::getNullValue(diffeType);
+        setDiffe(&EVI, diffe, Builder2);
+      } else {
+        Value *diffe_aggregate = diffe(orig_aggregate, Builder2);
+        Value *diffe =
+            Builder2.CreateExtractValue(diffe_aggregate, EVI.getIndices());
+        setDiffe(&EVI, diffe, Builder2);
+      }
 
-      setDiffe(&EVI, diffe, Builder2);
       return;
     }
     case DerivativeMode::ReverseModeGradient:
@@ -1623,7 +1630,6 @@ public:
 
     switch (Mode) {
     case DerivativeMode::ForwardModeVector:
-      assert("vector forward not yet implemented");
     case DerivativeMode::ForwardModeSplit:
     case DerivativeMode::ForwardMode: {
       IRBuilder<> Builder2(&IVI);
@@ -1632,16 +1638,26 @@ public:
       Value *orig_inserted = IVI.getInsertedValueOperand();
       Value *orig_agg = IVI.getAggregateOperand();
 
+      StructType *sty = dyn_cast<StructType>(orig_agg->getType());
+      Type *insertedType =
+          Mode == DerivativeMode::ForwardModeVector
+              ? FixedVectorType::get(orig_inserted->getType(), gutils->width)
+              : orig_inserted->getType();
+      Type *diffeType = Mode == DerivativeMode::ForwardModeVector
+                            ? gutils->getTypeForVectorMode(sty)
+                            : orig_agg->getType();
+
       Value *diff_inserted = gutils->isConstantValue(orig_inserted)
-                                 ? ConstantFP::get(orig_inserted->getType(), 0)
+                                 ? Constant::getNullValue(insertedType)
                                  : diffe(orig_inserted, Builder2);
 
-      Value *prediff =
-          gutils->isConstantValue(orig_agg)
-              ? ConstantAggregate::getNullValue(orig_agg->getType())
-              : diffe(orig_agg, Builder2);
+      Value *prediff = gutils->isConstantValue(orig_agg)
+                           ? ConstantAggregate::getNullValue(diffeType)
+                           : diffe(orig_agg, Builder2);
+
       auto dindex =
           Builder2.CreateInsertValue(prediff, diff_inserted, IVI.getIndices());
+
       setDiffe(&IVI, dindex, Builder2);
 
       return;
@@ -1706,10 +1722,22 @@ public:
   }
 
   Value *getNewOrNewSplatFromOriginal(Value *orig, IRBuilder<> &Builder) {
-    return Mode == DerivativeMode::ForwardModeVector
-               ? Builder.CreateVectorSplat(gutils->width,
-                                           gutils->getNewFromOriginal(orig))
-               : gutils->getNewFromOriginal(orig);
+    if (Mode != DerivativeMode::ForwardModeVector) {
+      return gutils->getNewFromOriginal(orig);
+    }
+
+    if (auto vty = dyn_cast<VectorType>(orig->getType())) {
+      unsigned int count = vty->getElementCount().getKnownMinValue();
+      SmallVector<int, 6> mask;
+      for (int i = 0; i < gutils->width * count; i++) {
+        mask.push_back(i % count);
+      }
+      return Builder.CreateShuffleVector(gutils->getNewFromOriginal(orig),
+                                         mask);
+    } else {
+      return Builder.CreateVectorSplat(gutils->width,
+                                       gutils->getNewFromOriginal(orig));
+    }
   }
 
   Value *diffe(Value *val, IRBuilder<> &Builder) {
@@ -1719,9 +1747,6 @@ public:
 
   void setDiffe(Value *val, Value *dif, IRBuilder<> &Builder) {
     assert(Mode != DerivativeMode::ReverseModePrimal);
-    assert(Mode != DerivativeMode::ForwardModeVector ||
-           Mode == DerivativeMode::ForwardModeVector &&
-               dif->getType()->isVectorTy());
     ((DiffeGradientUtils *)gutils)->setDiffe(val, dif, Builder);
   }
 
@@ -1766,7 +1791,6 @@ public:
       createBinaryOperatorAdjoint(BO);
       break;
     case DerivativeMode::ForwardModeVector:
-      assert("vector forward not yet implemented");
     case DerivativeMode::ForwardMode:
     case DerivativeMode::ForwardModeSplit:
       createBinaryOperatorDual(BO);

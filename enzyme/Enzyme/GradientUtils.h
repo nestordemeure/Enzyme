@@ -1466,6 +1466,22 @@ public:
         getNewFromOriginal(Builder2.getCurrentDebugLocation()));
     Builder2.setFastMathFlags(getFast());
   }
+
+  Type *getTypeForVectorMode(Type *ty) {
+    if (ty->isIntOrPtrTy() || ty->isFloatingPointTy()) {
+      return FixedVectorType::get(ty, width);
+    } else if (ty->isVectorTy()) {
+      VectorType *vty = dyn_cast<VectorType>(ty);
+      unsigned int count = vty->getElementCount().getKnownMinValue();
+      return FixedVectorType::get(vty->getElementType(), width * count);
+    } else {
+      SmallVector<Type *, 4> tys;
+      for (auto it = ty->subtype_begin(); it != ty->subtype_end(); it++) {
+        tys.push_back(getTypeForVectorMode(*it));
+      }
+      return StructType::get(ty->getContext(), tys);
+    }
+  }
 };
 
 class DiffeGradientUtils : public GradientUtils {
@@ -1515,8 +1531,11 @@ private:
     if (auto inst = dyn_cast<Instruction>(val))
       assert(inst->getParent()->getParent() == oldFunc);
     assert(inversionAllocs);
+
+    // TODO: write utility function, that derives type for vector mode
+
     Type *type = mode == DerivativeMode::ForwardModeVector
-                     ? FixedVectorType::get(val->getType(), width)
+                     ? getTypeForVectorMode(val->getType())
                      : val->getType();
     if (differentials.find(val) == differentials.end()) {
       IRBuilder<> entryBuilder(inversionAllocs);
