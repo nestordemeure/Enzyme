@@ -1468,8 +1468,17 @@ public:
   }
 
   Type *getTypeForVectorMode(Type *ty) {
-    if (ty->isIntOrPtrTy() || ty->isFloatingPointTy()) {
+    return getTypeForVectorMode(ty, width);
+  }
+
+  static Type *getTypeForVectorMode(Type *ty, unsigned int width) {
+    if (ty->isIntegerTy() || ty->isFloatingPointTy()) {
       return FixedVectorType::get(ty, width);
+    } else if (ty->isPointerTy()) {
+      PointerType *pty = dyn_cast<PointerType>(ty);
+      return PointerType::get(
+          getTypeForVectorMode(pty->getPointerElementType(), width),
+          pty->getAddressSpace());
     } else if (ty->isVectorTy()) {
       VectorType *vty = dyn_cast<VectorType>(ty);
       unsigned int count = vty->getElementCount().getKnownMinValue();
@@ -1477,7 +1486,7 @@ public:
     } else {
       SmallVector<Type *, 4> tys;
       for (auto it = ty->subtype_begin(); it != ty->subtype_end(); it++) {
-        tys.push_back(getTypeForVectorMode(*it));
+        tys.push_back(getTypeForVectorMode(*it, width));
       }
       return StructType::get(ty->getContext(), tys);
     }

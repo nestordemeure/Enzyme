@@ -469,7 +469,8 @@ public:
           }
           break;
         }
-        case DerivativeMode::ForwardMode: {
+        case DerivativeMode::ForwardMode:
+        case DerivativeMode::ForwardModeVector: {
           newip = gutils->invertPointerM(&I, BuilderZ);
           assert(newip->getType() == type);
           placeholder->replaceAllUsesWith(newip);
@@ -591,7 +592,8 @@ public:
       if (isfloat) {
 
         switch (Mode) {
-        case DerivativeMode::ForwardMode: {
+        case DerivativeMode::ForwardMode:
+        case DerivativeMode::ForwardModeVector: {
           IRBuilder<> Builder2(&I);
           getForwardBuilder(Builder2);
 
@@ -838,7 +840,8 @@ public:
         }
         break;
       }
-      case DerivativeMode::ForwardMode: {
+      case DerivativeMode::ForwardMode:
+      case DerivativeMode::ForwardModeVector: {
         IRBuilder<> Builder2(&I);
         getForwardBuilder(Builder2);
 

@@ -1590,7 +1590,8 @@ Function *PreProcessCache::CloneFunctionWithReturns(
     if (constant_args[argno] == DIFFE_TYPE::DUP_ARG ||
         constant_args[argno] == DIFFE_TYPE::DUP_NONEED) {
       if (mode == DerivativeMode::ForwardModeVector) {
-        ArgTypes.push_back(FixedVectorType::get(I.getType(), width));
+        ArgTypes.push_back(
+            GradientUtils::getTypeForVectorMode(I.getType(), width));
       } else {
         ArgTypes.push_back(I.getType());
       }

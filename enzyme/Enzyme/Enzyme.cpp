@@ -369,6 +369,7 @@ public:
 
     IRBuilder<> Builder(CI);
 
+    std::optional<unsigned int> width;
     unsigned truei = 0;
     if (cast<Function>(fn)->hasParamAttribute(0, Attribute::StructRet)) {
       Type *fnsrety = cast<PointerType>(FT->getParamType(0));
@@ -654,28 +655,63 @@ public:
         // Convert struct used in C calling convention to vector type for
         // internal use.
         if (mode == DerivativeMode::ForwardModeVector) {
-          Value *vec = UndefValue::get(
-              FixedVectorType::get(returnType->getStructElementType(0),
-                                   returnType->getStructNumElements()));
+          if (StructType *sty =
+                  dyn_cast<StructType>(dyn_cast<PointerType>(res->getType())
+                                           ->getPointerElementType())) {
+            assert(!width || *width == sty->getStructNumElements());
+            width = sty->getStructNumElements();
+            if (CI->paramHasAttr(i, Attribute::ByVal)) {
+              Value *vec = UndefValue::get(
+                  FixedVectorType::get(sty->getStructElementType(0), *width));
+              for (unsigned int i = 0; i < *width; i++) {
+                Value *ep = Builder.CreateStructGEP(res, i);
+                Value *elem =
+                    Builder.CreateLoad(sty->getStructElementType(i), ep);
+                vec = Builder.CreateInsertElement(vec, elem, i);
+              }
+              args.push_back(vec);
+            } else {
+              IRBuilder<> PostCallBuilder(CI->getNextNode());
+              Value *ptr = Builder.CreateAlloca(
+                  FixedVectorType::get(sty->getStructElementType(0), *width));
 
-          if (CI->hasStructRetAttr()) {
-            StructType *sty = dyn_cast<StructType>(
-                dyn_cast<PointerType>(res->getType())->getPointerElementType());
+              Value *vec = UndefValue::get(
+                  FixedVectorType::get(sty->getStructElementType(0), *width));
+              for (unsigned int i = 0; i < *width; i++) {
+                Value *ep = Builder.CreateStructGEP(res, i);
+                Value *elem =
+                    Builder.CreateLoad(sty->getStructElementType(i), ep);
+                vec = Builder.CreateInsertElement(vec, elem, i);
+              }
+              Builder.CreateStore(vec, ptr);
+              args.push_back(ptr);
 
-            for (unsigned int i = 0; i < sty->getNumElements(); i++) {
-              Value *ep = Builder.CreateStructGEP(res, i);
-              Value *elem = Builder.CreateLoad(sty->getElementType(i), ep);
-              vec = Builder.CreateInsertElement(vec, elem, i);
+              Value *pc = PostCallBuilder.CreateLoad(ptr);
+              for (unsigned int i = 0; i < *width; i++) {
+                Value *ep = PostCallBuilder.CreateStructGEP(res, i);
+                Value *elem = PostCallBuilder.CreateExtractElement(pc, i);
+                PostCallBuilder.CreateStore(elem, ep);
+              }
             }
           } else {
-            unsigned int width = CI->getType()->getStructNumElements();
-            for (unsigned int j = 0; j < width; j++) {
+            llvm::errs()
+                << "Cannot determine vector width. This is most likely due to "
+                   "clang passing the struct representing our vector as single "
+                   "arguments. Trying to guess vector width based on return "
+                   "type...\n";
+            assert(!width || *width == CI->getType()->getStructNumElements());
+            width = CI->getType()->getStructNumElements();
+            Value *vec = UndefValue::get(
+                FixedVectorType::get(returnType->getStructElementType(0),
+                                     returnType->getStructNumElements()));
+
+            for (unsigned int j = 0; j < *width; j++) {
               Value *elem = CI->getArgOperand(i + j);
               vec = Builder.CreateInsertElement(vec, elem, j);
             }
-            i += width;
+            args.push_back(vec);
+            i += *width;
           }
-          args.push_back(vec);
         } else {
           args.push_back(res);
         }
@@ -719,11 +755,15 @@ public:
     const AugmentedReturn *aug;
     switch (mode) {
     case DerivativeMode::ForwardModeVector:
-      newFunc = Logic.CreateForwardDiff(
-          cast<Function>(fn), retType, constants, TLI, TA,
-          /*should return*/ false, /*dretPtr*/ false, mode,
-          /* width */ returnType->getStructNumElements(),
-          /*addedType*/ nullptr, type_args, volatile_args, PostOpt);
+      if (width) {
+        newFunc = Logic.CreateForwardDiff(
+            cast<Function>(fn), retType, constants, TLI, TA,
+            /*should return*/ false, /*dretPtr*/ false, mode,
+            /* width */ *width,
+            /*addedType*/ nullptr, type_args, volatile_args, PostOpt);
+      } else {
+        report_fatal_error("Misssing vector width for vector mode");
+      }
       break;
     case DerivativeMode::ForwardModeSplit:
     case DerivativeMode::ForwardMode:
