@@ -655,44 +655,55 @@ public:
         // Convert struct used in C calling convention to vector type for
         // internal use.
         if (mode == DerivativeMode::ForwardModeVector) {
-          if (StructType *sty =
-                  dyn_cast<StructType>(dyn_cast<PointerType>(res->getType())
-                                           ->getPointerElementType())) {
-            assert(!width || *width == sty->getStructNumElements());
-            width = sty->getStructNumElements();
-            if (CI->paramHasAttr(i, Attribute::ByVal)) {
-              Value *vec = UndefValue::get(
-                  FixedVectorType::get(sty->getStructElementType(0), *width));
-              for (unsigned int i = 0; i < *width; i++) {
-                Value *ep = Builder.CreateStructGEP(res, i);
-                Value *elem =
-                    Builder.CreateLoad(sty->getStructElementType(i), ep);
-                vec = Builder.CreateInsertElement(vec, elem, i);
-              }
-              args.push_back(vec);
-            } else {
-              IRBuilder<> PostCallBuilder(CI->getNextNode());
-              Value *ptr = Builder.CreateAlloca(
-                  FixedVectorType::get(sty->getStructElementType(0), *width));
+          if (PointerType *pty = dyn_cast<PointerType>(res->getType())) {
+            if (StructType *sty =
+                    dyn_cast<StructType>(pty->getPointerElementType())) {
+              assert(!width || *width == sty->getStructNumElements());
+              width = sty->getStructNumElements();
+              if (CI->paramHasAttr(i, Attribute::ByVal)) {
+                Value *vec = UndefValue::get(
+                    FixedVectorType::get(sty->getStructElementType(0), *width));
+                for (unsigned int i = 0; i < *width; i++) {
+                  Value *ep = Builder.CreateStructGEP(res, i);
+                  Value *elem =
+                      Builder.CreateLoad(sty->getStructElementType(i), ep);
+                  vec = Builder.CreateInsertElement(vec, elem, i);
+                }
+                args.push_back(vec);
+              } else {
+                IRBuilder<> PostCallBuilder(CI->getNextNode());
+                Value *ptr = Builder.CreateAlloca(
+                    FixedVectorType::get(sty->getStructElementType(0), *width));
 
-              Value *vec = UndefValue::get(
-                  FixedVectorType::get(sty->getStructElementType(0), *width));
-              for (unsigned int i = 0; i < *width; i++) {
-                Value *ep = Builder.CreateStructGEP(res, i);
-                Value *elem =
-                    Builder.CreateLoad(sty->getStructElementType(i), ep);
-                vec = Builder.CreateInsertElement(vec, elem, i);
-              }
-              Builder.CreateStore(vec, ptr);
-              args.push_back(ptr);
+                Value *vec = UndefValue::get(
+                    FixedVectorType::get(sty->getStructElementType(0), *width));
+                for (unsigned int i = 0; i < *width; i++) {
+                  Value *ep = Builder.CreateStructGEP(res, i);
+                  Value *elem =
+                      Builder.CreateLoad(sty->getStructElementType(i), ep);
+                  vec = Builder.CreateInsertElement(vec, elem, i);
+                }
+                Builder.CreateStore(vec, ptr);
+                args.push_back(ptr);
 
-              Value *pc = PostCallBuilder.CreateLoad(ptr);
-              for (unsigned int i = 0; i < *width; i++) {
-                Value *ep = PostCallBuilder.CreateStructGEP(res, i);
-                Value *elem = PostCallBuilder.CreateExtractElement(pc, i);
-                PostCallBuilder.CreateStore(elem, ep);
+                Value *pc = PostCallBuilder.CreateLoad(ptr);
+                for (unsigned int i = 0; i < *width; i++) {
+                  Value *ep = PostCallBuilder.CreateStructGEP(res, i);
+                  Value *elem = PostCallBuilder.CreateExtractElement(pc, i);
+                  PostCallBuilder.CreateStore(elem, ep);
+                }
               }
             }
+          } else if (ArrayType *aty = dyn_cast<ArrayType>(res->getType())) {
+            assert(!width || *width == aty->getNumElements());
+            width = aty->getNumElements();
+            Value *vec = UndefValue::get(
+                FixedVectorType::get(aty->getArrayElementType(), *width));
+            for (unsigned int i = 0; i < aty->getNumElements(); i++) {
+              Value *elem = Builder.CreateExtractValue(res, i);
+              vec = Builder.CreateInsertElement(vec, elem, i);
+            }
+            args.push_back(vec);
           } else {
             llvm::errs()
                 << "Cannot determine vector width. This is most likely due to "

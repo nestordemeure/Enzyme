@@ -901,7 +901,14 @@ public:
   AAResults &OrigAA;
   TypeAnalysis &TA;
   bool omp;
+
+private:
   size_t width;
+
+public:
+  size_t getWidth() { return width; }
+
+public:
   GradientUtils(EnzymeLogic &Logic, Function *newFunc_, Function *oldFunc_,
                 TargetLibraryInfo &TLI_, TypeAnalysis &TA_,
                 ValueToValueMapTy &invertedPointers_,
@@ -1481,8 +1488,8 @@ public:
           pty->getAddressSpace());
     } else if (ty->isVectorTy()) {
       VectorType *vty = dyn_cast<VectorType>(ty);
-      unsigned int count = vty->getElementCount().getKnownMinValue();
-      return FixedVectorType::get(vty->getElementType(), width * count);
+      ElementCount ec = vty->getElementCount() * width;
+      return VectorType::get(vty->getElementType(), ec);
     } else {
       SmallVector<Type *, 4> tys;
       for (auto it = ty->subtype_begin(); it != ty->subtype_end(); it++) {

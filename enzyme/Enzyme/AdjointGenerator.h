@@ -1146,7 +1146,7 @@ public:
     getForwardBuilder(Builder2);
 
     Type *type = Mode == DerivativeMode::ForwardModeVector
-                     ? FixedVectorType::get(SI.getType(), gutils->width)
+                     ? gutils->getTypeForVectorMode(SI.getType())
                      : SI.getType();
 
     Value *dif1;
@@ -1195,26 +1195,24 @@ public:
       IRBuilder<> Builder2(&EEI);
       getForwardBuilder(Builder2);
 
-      unsigned int vec_element_count =
-          EEI.getVectorOperandType()->getElementCount().getKnownMinValue();
-
+      ElementCount ec = EEI.getVectorOperandType()->getElementCount();
       Value *orig_vec = EEI.getVectorOperand();
-      FixedVectorType *diffeType =
-          FixedVectorType::get(EEI.getVectorOperandType()->getElementType(),
-                               gutils->width * vec_element_count);
+      VectorType *diffeType =
+          VectorType::get(EEI.getVectorOperandType()->getElementType(),
+                          ec * gutils->getWidth());
 
       Value *vec_diffe = gutils->isConstantValue(orig_vec)
                              ? ConstantVector::getNullValue(diffeType)
                              : diffe(orig_vec, Builder2);
 
       FixedVectorType *bitmaskType =
-          FixedVectorType::get(Builder2.getInt32Ty(), gutils->width);
+          FixedVectorType::get(Builder2.getInt32Ty(), gutils->getWidth());
       Value *bitmask = UndefValue::get(bitmaskType);
 
-      for (unsigned int i = 0; i < gutils->width; i++) {
+      for (unsigned int i = 0; i < gutils->getWidth(); i++) {
         Value *idx = Builder2.CreateAdd(
             gutils->getNewFromOriginal(EEI.getIndexOperand()),
-            Builder2.getInt32(i * vec_element_count));
+            Builder2.getInt32(i * ec.getKnownMinValue()));
         bitmask = Builder2.CreateInsertElement(bitmask, idx, i);
       }
 
@@ -1298,14 +1296,12 @@ public:
       VectorType *orig_vector_type =
           dyn_cast<VectorType>(orig_vector->getType());
 
-      unsigned int vector_element_count =
-          orig_vector_type->getElementCount().getKnownMinValue();
+      ElementCount ec = orig_vector_type->getElementCount();
 
       FixedVectorType *inserted_diffeType =
-          FixedVectorType::get(orig_inserted->getType(), gutils->width);
-      FixedVectorType *vector_diffeType =
-          FixedVectorType::get(orig_vector_type->getElementType(),
-                               gutils->width * vector_element_count);
+          FixedVectorType::get(orig_inserted->getType(), gutils->getWidth());
+      VectorType *vector_diffeType = VectorType::get(
+          orig_vector_type->getElementType(), ec * gutils->getWidth());
 
       Value *inserted_diffe =
           gutils->isConstantValue(orig_inserted)
@@ -1315,9 +1311,9 @@ public:
                              ? ConstantVector::getNullValue(vector_diffeType)
                              : diffe(orig_vector, Builder2);
 
-      for (unsigned int i = 0; i < gutils->width; i++) {
+      for (unsigned int i = 0; i < gutils->getWidth(); i++) {
         Value *idx = Builder2.CreateAdd(
-            orig_index, Builder2.getInt32(i * vector_element_count));
+            orig_index, Builder2.getInt32(i * ec.getKnownMinValue()));
         Value *elem = Builder2.CreateExtractElement(inserted_diffe, i);
         vec_diffe = Builder2.CreateInsertElement(vec_diffe, elem, idx);
       }
@@ -1415,10 +1411,9 @@ public:
       Value *orig_vector2 = SVI.getOperand(1);
 
       VectorType *vector_type = dyn_cast<VectorType>(orig_vector1->getType());
-      unsigned int vector_element_count =
-          vector_type->getElementCount().getKnownMinValue();
-      FixedVectorType *diffe_vector_type = FixedVectorType::get(
-          vector_type->getElementType(), vector_element_count * gutils->width);
+      ElementCount vec = vector_type->getElementCount();
+      VectorType *diffe_vector_type = VectorType::get(
+          vector_type->getElementType(), vec * gutils->getWidth());
 
       auto diffe_vector1 = gutils->isConstantValue(orig_vector1)
                                ? ConstantVector::getNullValue(diffe_vector_type)
@@ -1428,12 +1423,13 @@ public:
                                : diffe(orig_vector2, Builder2);
 
       VectorType *type = dyn_cast<VectorType>(SVI.getType());
-      unsigned int element_count = type->getElementCount().getKnownMinValue();
+      ElementCount ec = type->getElementCount();
+      unsigned int element_count = ec.getKnownMinValue();
 
       Value *diffe = nullptr;
 
       SmallVector<int, 4> concat_vec_mask;
-      for (int i = 0; i < gutils->width; i++) {
+      for (int i = 0; i < gutils->getWidth(); i++) {
         SmallVector<int, 4> select_vec_i_mask;
         for (int j = 0; j < element_count; j++) {
           concat_vec_mask.push_back(i * element_count + j);
@@ -1526,7 +1522,7 @@ public:
       if (gutils->isConstantValue(orig_aggregate)) {
         Type *diffeType =
             Mode == DerivativeMode::ForwardModeVector
-                ? FixedVectorType::get(EVI.getType(), gutils->width)
+                ? FixedVectorType::get(EVI.getType(), gutils->getWidth())
                 : EVI.getType();
         Value *diffe = Constant::getNullValue(diffeType);
         setDiffe(&EVI, diffe, Builder2);
@@ -1644,7 +1640,7 @@ public:
       StructType *sty = dyn_cast<StructType>(orig_agg->getType());
       Type *insertedType =
           Mode == DerivativeMode::ForwardModeVector
-              ? FixedVectorType::get(orig_inserted->getType(), gutils->width)
+              ? gutils->getTypeForVectorMode(orig_inserted->getType())
               : orig_inserted->getType();
       Type *diffeType = Mode == DerivativeMode::ForwardModeVector
                             ? gutils->getTypeForVectorMode(sty)
@@ -1732,13 +1728,13 @@ public:
     if (auto vty = dyn_cast<VectorType>(orig->getType())) {
       unsigned int count = vty->getElementCount().getKnownMinValue();
       SmallVector<int, 6> mask;
-      for (int i = 0; i < gutils->width * count; i++) {
+      for (int i = 0; i < gutils->getWidth() * count; i++) {
         mask.push_back(i % count);
       }
       return Builder.CreateShuffleVector(gutils->getNewFromOriginal(orig),
                                          mask);
     } else {
-      return Builder.CreateVectorSplat(gutils->width,
+      return Builder.CreateVectorSplat(gutils->getWidth(),
                                        gutils->getNewFromOriginal(orig));
     }
   }
@@ -3289,7 +3285,8 @@ public:
       }
       return;
     }
-    case DerivativeMode::ForwardMode: {
+    case DerivativeMode::ForwardMode:
+    case DerivativeMode::ForwardModeVector: {
 
       IRBuilder<> Builder2(&I);
       getForwardBuilder(Builder2);
@@ -3305,19 +3302,27 @@ public:
         if (gutils->isConstantInstruction(&I))
           return;
 
+        Type *acctype =
+            Mode == DerivativeMode::ForwardModeVector
+                ? gutils->getTypeForVectorMode(orig_ops[0]->getType())
+                : orig_ops[0]->getType();
+        Type *vectype =
+            Mode == DerivativeMode::ForwardModeVector
+                ? gutils->getTypeForVectorMode(orig_ops[1]->getType())
+                : orig_ops[1]->getType();
+
         auto accdif = gutils->isConstantValue(orig_ops[0])
-                          ? ConstantFP::get(orig_ops[0]->getType(), 0)
+                          ? Constant::getNullValue(acctype)
                           : diffe(orig_ops[0], Builder2);
 
         auto vecdif = gutils->isConstantValue(orig_ops[1])
-                          ? ConstantVector::getNullValue(orig_ops[1]->getType())
+                          ? ConstantVector::getNullValue(vectype)
                           : diffe(orig_ops[1], Builder2);
 
 #if LLVM_VERSION_MAJOR < 12
-        auto vfra = Intrinsic::getDeclaration(
-            M, ID, {orig_ops[0]->getType(), orig_ops[1]->getType()});
+        auto vfra = Intrinsic::getDeclaration(M, ID, {acctype, vectype});
 #else
-        auto vfra = Intrinsic::getDeclaration(M, ID, {orig_ops[1]->getType()});
+        auto vfra = Intrinsic::getDeclaration(M, ID, {vectype});
 #endif
         auto cal = Builder2.CreateCall(vfra, {accdif, vecdif});
         cal->setCallingConv(vfra->getCallingConv());
@@ -3331,6 +3336,10 @@ public:
       case Intrinsic::nvvm_sqrt_rn_d:
       case Intrinsic::sqrt: {
         Value *op = diffe(orig_ops[0], Builder2);
+        Type *opType =
+            Mode == DerivativeMode::ForwardModeVector
+                ? gutils->getTypeForVectorMode(orig_ops[0]->getType())
+                : orig_ops[0]->getType();
 
         if (op && !gutils->isConstantValue(orig_ops[0])) {
           SmallVector<Value *, 2> args = {
@@ -3342,17 +3351,28 @@ public:
           else
             SqrtF = Intrinsic::getDeclaration(M, ID);
 
-          auto cal = cast<CallInst>(Builder2.CreateCall(SqrtF, args));
-          cal->setCallingConv(SqrtF->getCallingConv());
-          cal->setDebugLoc(gutils->getNewFromOriginal(I.getDebugLoc()));
+          Value *cal = Builder2.CreateCall(SqrtF, args);
+          cast<CallInst>(cal)->setCallingConv(SqrtF->getCallingConv());
+          cast<CallInst>(cal)->setDebugLoc(
+              gutils->getNewFromOriginal(I.getDebugLoc()));
 
-          Value *dif0 = Builder2.CreateFDiv(
-              Builder2.CreateFMul(ConstantFP::get(I.getType(), 0.5), op), cal);
+          Constant *half = ConstantFP::get(orig_ops[0]->getType(), 0.5);
 
-          Value *cmp = Builder2.CreateFCmpOEQ(
-              args[0], ConstantFP::get(orig_ops[0]->getType(), 0));
-          dif0 = Builder2.CreateSelect(
-              cmp, ConstantFP::get(orig_ops[0]->getType(), 0), dif0);
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(op->getType())) {
+              ec = vty->getElementCount();
+            }
+            cal = Builder2.CreateVectorSplat(ec, cal);
+            half = ConstantVector::getSplat(ec, half);
+          }
+
+          Value *dif0 = Builder2.CreateFDiv(Builder2.CreateFMul(half, op), cal);
+
+          Value *cmp =
+              Builder2.CreateFCmpOEQ(args[0], Constant::getNullValue(tys[0]));
+          dif0 =
+              Builder2.CreateSelect(cmp, Constant::getNullValue(opType), dif0);
 
           setDiffe(&I, dif0, Builder2);
         }
@@ -3366,11 +3386,20 @@ public:
           Value *cmp = Builder2.CreateFCmpOLT(
               gutils->getNewFromOriginal(orig_ops[0]),
               ConstantFP::get(orig_ops[0]->getType(), 0));
-          Value *dif0 = Builder2.CreateFMul(
-              Builder2.CreateSelect(cmp,
-                                    ConstantFP::get(orig_ops[0]->getType(), -1),
-                                    ConstantFP::get(orig_ops[0]->getType(), 1)),
-              op);
+
+          Value *select = Builder2.CreateSelect(
+              cmp, ConstantFP::get(orig_ops[0]->getType(), -1),
+              ConstantFP::get(orig_ops[0]->getType(), 1));
+
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(op->getType())) {
+              ec = vty->getElementCount();
+            }
+            select = Builder2.CreateVectorSplat(ec, select);
+          }
+
+          Value *dif0 = Builder2.CreateFMul(select, op);
           setDiffe(&I, dif0, Builder2);
         }
         return;
@@ -3387,11 +3416,20 @@ public:
           Value *op1 = gutils->getNewFromOriginal(orig_ops[1]);
           Value *cmp = Builder2.CreateFCmpOLT(op0, op1);
 
+          Type *opType0 =
+              Mode == DerivativeMode::ForwardModeVector
+                  ? gutils->getTypeForVectorMode(orig_ops[0]->getType())
+                  : orig_ops[0]->getType();
+          Type *opType1 =
+              Mode == DerivativeMode::ForwardModeVector
+                  ? gutils->getTypeForVectorMode(orig_ops[1]->getType())
+                  : orig_ops[1]->getType();
+
           Value *diffe0 = gutils->isConstantValue(orig_ops[0])
-                              ? ConstantFP::get(orig_ops[0]->getType(), 0)
+                              ? Constant::getNullValue(opType0)
                               : diffe(orig_ops[0], Builder2);
           Value *diffe1 = gutils->isConstantValue(orig_ops[1])
-                              ? ConstantFP::get(orig_ops[1]->getType(), 0)
+                              ? Constant::getNullValue(opType1)
                               : diffe(orig_ops[1], Builder2);
 
           Value *dif = Builder2.CreateSelect(cmp, diffe0, diffe1);
@@ -3412,11 +3450,20 @@ public:
           Value *op1 = gutils->getNewFromOriginal(orig_ops[1]);
           Value *cmp = Builder2.CreateFCmpOLT(op0, op1);
 
+          Type *opType0 =
+              Mode == DerivativeMode::ForwardModeVector
+                  ? gutils->getTypeForVectorMode(orig_ops[0]->getType())
+                  : orig_ops[0]->getType();
+          Type *opType1 =
+              Mode == DerivativeMode::ForwardModeVector
+                  ? gutils->getTypeForVectorMode(orig_ops[1]->getType())
+                  : orig_ops[1]->getType();
+
           Value *diffe0 = gutils->isConstantValue(orig_ops[0])
-                              ? ConstantFP::get(orig_ops[0]->getType(), 0)
+                              ? Constant::getNullValue(opType0)
                               : diffe(orig_ops[0], Builder2);
           Value *diffe1 = gutils->isConstantValue(orig_ops[1])
-                              ? ConstantFP::get(orig_ops[1]->getType(), 0)
+                              ? Constant::getNullValue(opType1)
                               : diffe(orig_ops[1], Builder2);
 
           Value *dif = Builder2.CreateSelect(cmp, diffe0, diffe1);
@@ -3433,15 +3480,37 @@ public:
           Value *op1 = gutils->getNewFromOriginal(orig_ops[1]);
           Value *op2 = gutils->getNewFromOriginal(orig_ops[2]);
 
+          Type *opType0 =
+              Mode == DerivativeMode::ForwardModeVector
+                  ? gutils->getTypeForVectorMode(orig_ops[0]->getType())
+                  : orig_ops[0]->getType();
+          Type *opType1 =
+              Mode == DerivativeMode::ForwardModeVector
+                  ? gutils->getTypeForVectorMode(orig_ops[1]->getType())
+                  : orig_ops[1]->getType();
+          Type *opType2 =
+              Mode == DerivativeMode::ForwardModeVector
+                  ? gutils->getTypeForVectorMode(orig_ops[2]->getType())
+                  : orig_ops[2]->getType();
+
           Value *dif0 = gutils->isConstantValue(orig_ops[0])
-                            ? ConstantFP::get(orig_ops[0]->getType(), 0)
+                            ? Constant::getNullValue(opType0)
                             : diffe(orig_ops[0], Builder2);
           Value *dif1 = gutils->isConstantValue(orig_ops[1])
-                            ? ConstantFP::get(orig_ops[1]->getType(), 0)
+                            ? Constant::getNullValue(opType1)
                             : diffe(orig_ops[1], Builder2);
           Value *dif2 = gutils->isConstantValue(orig_ops[2])
-                            ? ConstantFP::get(orig_ops[2]->getType(), 0)
+                            ? Constant::getNullValue(opType2)
                             : diffe(orig_ops[2], Builder2);
+
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            op1 = Builder2.CreateVectorSplat(ec, op1);
+            op2 = Builder2.CreateVectorSplat(ec, op2);
+          }
 
           Value *dif = Builder2.CreateFAdd(Builder2.CreateFMul(op1, dif2),
                                            Builder2.CreateFMul(dif1, op2));
@@ -3457,8 +3526,15 @@ public:
         Value *op = diffe(orig_ops[0], Builder2);
 
         if (op && !gutils->isConstantValue(orig_ops[0])) {
-          Value *dif0 =
-              Builder2.CreateFDiv(op, gutils->getNewFromOriginal(orig_ops[0]));
+          Value *origOp = gutils->getNewFromOriginal(orig_ops[0]);
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            origOp = Builder2.CreateVectorSplat(ec, origOp);
+          }
+          Value *dif0 = Builder2.CreateFDiv(op, origOp);
           setDiffe(&I, dif0, Builder2);
         }
         return;
@@ -3468,22 +3544,38 @@ public:
         Value *op = diffe(orig_ops[0], Builder2);
 
         if (op && !gutils->isConstantValue(orig_ops[0])) {
-          Value *dif0 = Builder2.CreateFDiv(
-              op, Builder2.CreateFMul(
-                      ConstantFP::get(I.getType(), 0.6931471805599453),
-                      gutils->getNewFromOriginal(orig_ops[0])));
+          Value *c = ConstantFP::get(I.getType(), 0.6931471805599453);
+          Value *origOp = gutils->getNewFromOriginal(orig_ops[0]);
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            origOp = Builder2.CreateVectorSplat(ec, origOp);
+            c = Builder2.CreateVectorSplat(ec, c);
+          }
+
+          Value *dif0 = Builder2.CreateFDiv(op, Builder2.CreateFMul(c, origOp));
           setDiffe(&I, dif0, Builder2);
         }
         return;
       }
       case Intrinsic::log10: {
+
         Value *op = diffe(orig_ops[0], Builder2);
 
         if (op && !gutils->isConstantValue(orig_ops[0])) {
-          Value *dif0 = Builder2.CreateFDiv(
-              op, Builder2.CreateFMul(
-                      ConstantFP::get(I.getType(), 2.302585092994046),
-                      gutils->getNewFromOriginal(orig_ops[0])));
+          Value *c = ConstantFP::get(I.getType(), 2.302585092994046);
+          Value *origOp = gutils->getNewFromOriginal(orig_ops[0]);
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            origOp = Builder2.CreateVectorSplat(ec, origOp);
+            c = Builder2.CreateVectorSplat(ec, c);
+          }
+          Value *dif0 = Builder2.CreateFDiv(op, Builder2.CreateFMul(c, origOp));
           setDiffe(&I, dif0, Builder2);
         }
         return;
@@ -3503,14 +3595,25 @@ public:
           if (ID == Intrinsic::exp || ID == Intrinsic::exp2)
             tys.push_back(orig_ops[0]->getType());
           auto ExpF = Intrinsic::getDeclaration(M, ID, tys);
-          auto cal = cast<CallInst>(Builder2.CreateCall(ExpF, args));
-          cal->setCallingConv(ExpF->getCallingConv());
-          cal->setDebugLoc(gutils->getNewFromOriginal(I.getDebugLoc()));
+          Value *cal = Builder2.CreateCall(ExpF, args);
+          cast<CallInst>(cal)->setCallingConv(ExpF->getCallingConv());
+          cast<CallInst>(cal)->setDebugLoc(
+              gutils->getNewFromOriginal(I.getDebugLoc()));
+
+          Value *c = ConstantFP::get(I.getType(), 0.6931471805599453);
+
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            cal = Builder2.CreateVectorSplat(ec, cal);
+            c = Builder2.CreateVectorSplat(ec, c);
+          }
 
           Value *dif0 = Builder2.CreateFMul(op, cal);
           if (ID != Intrinsic::exp) {
-            dif0 = Builder2.CreateFMul(
-                dif0, ConstantFP::get(I.getType(), 0.6931471805599453));
+            dif0 = Builder2.CreateFMul(dif0, c);
           }
           setDiffe(&I, dif0, Builder2);
         }
@@ -3547,8 +3650,17 @@ public:
             ysign = cal;
           }
 
-          Value *dif0 = Builder2.CreateFMul(Builder2.CreateFMul(xsign, ysign),
-                                            diffe(orig_ops[0], Builder2));
+          Value *sign = Builder2.CreateFMul(xsign, ysign);
+
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            sign = Builder2.CreateVectorSplat(ec, sign);
+          }
+
+          Value *dif0 = Builder2.CreateFMul(sign, diffe(orig_ops[0], Builder2));
           setDiffe(&I, dif0, Builder2);
         }
 
@@ -3569,13 +3681,25 @@ public:
 #endif
           };
           Function *PowF = Intrinsic::getDeclaration(M, Intrinsic::powi, tys);
-          auto cal = cast<CallInst>(Builder2.CreateCall(PowF, args));
-          cal->setCallingConv(PowF->getCallingConv());
-          cal->setDebugLoc(gutils->getNewFromOriginal(I.getDebugLoc()));
+          Value *cal = Builder2.CreateCall(PowF, args);
+          cast<CallInst>(cal)->setCallingConv(PowF->getCallingConv());
+          cast<CallInst>(cal)->setDebugLoc(
+              gutils->getNewFromOriginal(I.getDebugLoc()));
+
+          Value *cast =
+              Builder2.CreateSIToFP(op1, op0->getType()->getScalarType());
+
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            cal = Builder2.CreateVectorSplat(ec, cal);
+            cast = Builder2.CreateVectorSplat(ec, cast);
+          }
 
           Value *dif0 = Builder2.CreateFMul(
-              Builder2.CreateFMul(diffe(orig_ops[0], Builder2), cal),
-              Builder2.CreateSIToFP(op1, op0->getType()->getScalarType()));
+              Builder2.CreateFMul(diffe(orig_ops[0], Builder2), cal), cast);
 
           setDiffe(&I, dif0, Builder2);
         }
@@ -3607,8 +3731,17 @@ public:
               Intrinsic::getDeclaration(M, Intrinsic::log, tys), {op0});
 
           Value *dfdy = Builder2.CreateFMul(powcall2, logcall);
+          Value *diffe = Builder2.CreateFAdd(dfdx, dfdy);
 
-          setDiffe(&I, Builder2.CreateFAdd(dfdx, dfdy), Builder2);
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            diffe = Builder2.CreateVectorSplat(ec, diffe);
+          }
+
+          setDiffe(&I, diffe, Builder2);
         } else if (!gutils->isConstantValue(orig_ops[0])) {
           SmallVector<Value *, 2> args = {
               op0, Builder2.CreateFSub(op1, ConstantFP::get(I.getType(), 1.0))};
@@ -3617,6 +3750,14 @@ public:
           cal->setDebugLoc(gutils->getNewFromOriginal(I.getDebugLoc()));
 
           Value *dfdx = Builder2.CreateFMul(op1, cal);
+
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            dfdx = Builder2.CreateVectorSplat(ec, dfdx);
+          }
 
           setDiffe(&I, dfdx, Builder2);
         } else if (!gutils->isConstantValue(orig_ops[1])) {
@@ -3630,6 +3771,14 @@ public:
 
           Value *dfdy = Builder2.CreateFMul(powcall, logcall);
 
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            dfdy = Builder2.CreateVectorSplat(ec, dfdy);
+          }
+
           setDiffe(&I, dfdy, Builder2);
         }
 
@@ -3641,8 +3790,17 @@ public:
         if (op && !gutils->isConstantValue(orig_ops[0])) {
           Value *args[] = {gutils->getNewFromOriginal(orig_ops[0])};
           Type *tys[] = {orig_ops[0]->getType()};
-          CallInst *cal = cast<CallInst>(Builder2.CreateCall(
-              Intrinsic::getDeclaration(M, Intrinsic::cos, tys), args));
+          Value *cal = Builder2.CreateCall(
+              Intrinsic::getDeclaration(M, Intrinsic::cos, tys), args);
+
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            cal = Builder2.CreateVectorSplat(ec, cal);
+          }
+
           Value *dif0 = Builder2.CreateFMul(op, cal);
           setDiffe(&I, dif0, Builder2);
         }
@@ -3654,9 +3812,20 @@ public:
         if (op && !gutils->isConstantValue(orig_ops[0])) {
           Value *args[] = {gutils->getNewFromOriginal(orig_ops[0])};
           Type *tys[] = {orig_ops[0]->getType()};
-          CallInst *cal = cast<CallInst>(Builder2.CreateCall(
-              Intrinsic::getDeclaration(M, Intrinsic::sin, tys), args));
-          Value *dif0 = Builder2.CreateFMul(op, Builder2.CreateFNeg(cal));
+          Value *cal = Builder2.CreateCall(
+              Intrinsic::getDeclaration(M, Intrinsic::sin, tys), args);
+
+          cal = Builder2.CreateFNeg(cal);
+
+          if (Mode == DerivativeMode::ForwardModeVector) {
+            ElementCount ec = ElementCount::get(gutils->getWidth(), false);
+            if (auto vty = dyn_cast<VectorType>(I.getType())) {
+              ec = vty->getElementCount() * gutils->getWidth();
+            }
+            cal = Builder2.CreateVectorSplat(ec, cal);
+          }
+
+          Value *dif0 = Builder2.CreateFMul(op, cal);
           setDiffe(&I, dif0, Builder2);
         }
         return;
