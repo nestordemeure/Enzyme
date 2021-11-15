@@ -8401,7 +8401,8 @@ public:
       nextTypeInfo = TR.getCallInfo(*orig, *called);
     }
 
-    if (Mode == DerivativeMode::ForwardMode) {
+    if (Mode == DerivativeMode::ForwardMode ||
+        Mode == DerivativeMode::ForwardModeVector) {
       IRBuilder<> Builder2(&call);
       getForwardBuilder(Builder2);
 
@@ -8472,8 +8473,8 @@ public:
       auto newcalled = gutils->Logic.CreateForwardDiff(
           cast<Function>(called), subretType, argsInverted, gutils->TLI,
           TR.analyzer.interprocedural, /*returnValue*/ subretused,
-          /*subdretptr*/ false, DerivativeMode::ForwardMode, /* width */ 1,
-          nullptr, nextTypeInfo, {});
+          /*subdretptr*/ false, Mode, gutils->getWidth(), nullptr, nextTypeInfo,
+          {});
 
       assert(newcalled);
       FunctionType *FT = cast<FunctionType>(
