@@ -445,7 +445,8 @@ public:
         // TODO: In the case of fwd mode this should be true if the loaded value
         // itself is used as a pointer.
         bool needShadow =
-            Mode == DerivativeMode::ForwardMode
+            Mode == DerivativeMode::ForwardMode ||
+                    Mode == DerivativeMode::ForwardModeVector
                 ? false
                 : is_value_needed_in_reverse<ValueType::ShadowPtr>(
                       TR, gutils, &I, Mode, oldUnreachable);
@@ -858,7 +859,8 @@ public:
       //! Only need to update the forward function
       if (Mode == DerivativeMode::ReverseModePrimal ||
           Mode == DerivativeMode::ReverseModeCombined ||
-          Mode == DerivativeMode::ForwardMode) {
+          Mode == DerivativeMode::ForwardMode ||
+          Mode == DerivativeMode::ForwardModeVector) {
         IRBuilder<> storeBuilder(gutils->getNewFromOriginal(&I));
 
         Value *valueop = nullptr;
@@ -2556,7 +2558,8 @@ public:
       return;
     }
 
-    if (Mode == DerivativeMode::ForwardMode) {
+    if (Mode == DerivativeMode::ForwardMode ||
+        Mode == DerivativeMode::ForwardModeVector) {
       IRBuilder<> Builder2(&MTI);
       getForwardBuilder(Builder2);
       auto ddst = gutils->invertPointerM(orig_dst, Builder2);
@@ -7226,7 +7229,8 @@ public:
             Value *shadow = placeholder;
             if (lrc || Mode == DerivativeMode::ReverseModePrimal ||
                 Mode == DerivativeMode::ReverseModeCombined ||
-                Mode == DerivativeMode::ForwardMode) {
+                Mode == DerivativeMode::ForwardMode ||
+                Mode == DerivativeMode::ForwardModeVector) {
               if (gutils->isConstantValue(orig->getArgOperand(0)))
                 shadow = gutils->getNewFromOriginal(orig);
               else {
@@ -7269,7 +7273,8 @@ public:
           }
         }
 
-        if (Mode == DerivativeMode::ForwardMode) {
+        if (Mode == DerivativeMode::ForwardMode ||
+            Mode == DerivativeMode::ForwardModeVector) {
           eraseIfUnused(*orig);
           assert(gutils->isConstantInstruction(orig));
           return;
@@ -8042,7 +8047,8 @@ public:
                                Attribute::NonNull);
 #endif
           }
-        } else if (Mode == DerivativeMode::ForwardMode) {
+        } else if (Mode == DerivativeMode::ForwardMode ||
+                   Mode == DerivativeMode::ForwardModeVector) {
           IRBuilder<> Builder2(&call);
           getForwardBuilder(Builder2);
 
@@ -8068,7 +8074,8 @@ public:
         if (!pair.second)
           Seen[UsageKey(pair.first, ValueType::Primal)] = false;
       bool primalNeededInReverse =
-          Mode == DerivativeMode::ForwardMode
+          Mode == DerivativeMode::ForwardMode ||
+                  Mode == DerivativeMode::ForwardModeVector
               ? false
               : is_value_needed_in_reverse<ValueType::Primal>(
                     TR, gutils, orig, Mode, Seen, oldUnreachable);
@@ -8195,7 +8202,8 @@ public:
         Value *val;
         if (Mode == DerivativeMode::ReverseModePrimal ||
             Mode == DerivativeMode::ReverseModeCombined ||
-            Mode == DerivativeMode::ForwardMode) {
+            Mode == DerivativeMode::ForwardMode ||
+            Mode == DerivativeMode::ForwardModeVector) {
           Value *ptrshadow =
               gutils->invertPointerM(call.getArgOperand(0), BuilderZ);
           BuilderZ.CreateCall(
@@ -8296,7 +8304,8 @@ public:
       assert(gutils->invertedPointers.find(orig) ==
              gutils->invertedPointers.end());
 
-      if (Mode == DerivativeMode::ForwardMode) {
+      if (Mode == DerivativeMode::ForwardMode ||
+          Mode == DerivativeMode::ForwardModeVector) {
         if (!gutils->isConstantValue(orig->getArgOperand(0))) {
           IRBuilder<> Builder2(&call);
           getForwardBuilder(Builder2);
