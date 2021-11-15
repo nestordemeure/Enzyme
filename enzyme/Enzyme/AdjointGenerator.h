@@ -8469,7 +8469,6 @@ public:
         }
       }
 
-      // FIXME: width!
       auto newcalled = gutils->Logic.CreateForwardDiff(
           cast<Function>(called), subretType, argsInverted, gutils->TLI,
           TR.analyzer.interprocedural, /*returnValue*/ subretused,
