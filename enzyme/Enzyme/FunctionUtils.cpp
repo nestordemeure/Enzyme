@@ -1560,9 +1560,7 @@ Function *PreProcessCache::CloneFunctionWithReturns(
   F = preprocessForClone(F, mode);
   std::vector<Type *> RetTypes;
   if (returnValue == ReturnType::ArgsWithReturn ||
-      returnValue == ReturnType::ArgsWithTwoReturns ||
-      returnValue == ReturnType::Return ||
-      returnValue == ReturnType::TwoReturns) {
+      returnValue == ReturnType::Return) {
     if (mode == DerivativeMode::ForwardModeVector) {
       RetTypes.push_back(FixedVectorType::get(F->getReturnType(), width));
     } else {
