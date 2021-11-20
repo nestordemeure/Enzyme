@@ -424,7 +424,9 @@ public:
     constantval |= gutils->isConstantValue(&I);
 
     BasicBlock *parent = I.getParent();
-    Type *type = I.getType();
+    Type *type = Mode == DerivativeMode::ForwardModeVector
+                     ? gutils->getTypeForVectorMode(I.getType())
+                     : I.getType();
 
     auto *newi = dyn_cast<Instruction>(gutils->getNewFromOriginal(&I));
 
@@ -2558,6 +2560,11 @@ public:
     Value *orig_src = MTI.getOperand(1);
     Value *new_size = gutils->getNewFromOriginal(MTI.getOperand(2));
 
+    size_t size = 1;
+    if (auto ci = dyn_cast<ConstantInt>(new_size)) {
+      size = ci->getLimitedValue();
+    }
+
     // copying into nullptr is invalid (not sure why it exists here), but we
     // shouldn't do it in reverse pass or shadow
     if (isa<ConstantPointerNull>(orig_dst) ||
@@ -2574,10 +2581,26 @@ public:
       auto dsrc = gutils->invertPointerM(orig_src, Builder2);
 
       if (Mode == DerivativeMode::ForwardModeVector) {
-        // FIXME: This is not always correct
-        new_size =
-            Builder2.CreateMul(new_size, ConstantInt::get(new_size->getType(),
-                                                          gutils->getWidth()));
+        TypeTree vd = TR.query(orig_dst).Data0().AtMost(size);
+        vd |= TR.query(orig_src).Data0().AtMost(size);
+
+        if (vd.Inner0().isPossibleFloat()) {
+          new_size = Builder2.CreateMul(
+              new_size,
+              ConstantInt::get(new_size->getType(), gutils->getWidth()));
+        } else if (looseTypeAnalysis) {
+          for (auto val : {orig_dst, orig_src}) {
+            if (auto CI = dyn_cast<CastInst>(val)) {
+              if (auto PT = dyn_cast<PointerType>(CI->getSrcTy())) {
+                if (!PT->isPointerTy()) {
+                  new_size = Builder2.CreateMul(
+                      new_size, ConstantInt::get(new_size->getType(),
+                                                 gutils->getWidth()));
+                }
+              }
+            }
+          }
+        }
       }
 
       auto call =
@@ -2588,19 +2611,11 @@ public:
       return;
     }
 
-    size_t size = 1;
-    if (auto ci = dyn_cast<ConstantInt>(new_size)) {
-      size = ci->getLimitedValue();
-    }
-
     // TODO note that we only handle memcpy/etc of ONE type (aka memcpy of {int,
     // double} not allowed)
 
     // llvm::errs() << *gutils->oldFunc << "\n";
     // TR.dump();
-    if (size == 0) {
-      llvm::errs() << MTI << "\n";
-    }
     assert(size != 0);
 
     auto vd = TR.query(orig_dst).Data0().AtMost(size);
